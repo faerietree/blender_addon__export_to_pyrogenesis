@@ -499,32 +499,35 @@ def export_actor_related_files_recursively(o):
             variants.append(texture_variant) 
         #props_actors = [] #"<props>"
         children_index = -1
+        bpy.ops.object.select_all(action="DESELECT")
+        bpy.ops.object.select(child_object)
         while ++children_index < len(o.children):
             child_object = o.children[children_index]
+            # TODO It may be possible that empties have children, but still empties somehow had to be skipped and their children exported instead and all those child actor filepaths then need to be returned instead of the single empty-filepath (which doesn't exist as empties are prop points and don't exist in their standalone .dae file but only in their parent object's .dae file.).
             if (child_object.type != "MESH"):
                 continue
+            # it's a mesh child: (add a prop point empty)
             prop = Prop()
-            bpy.ops.object.select_all(action="DESELECT")
-            bpy.ops.object.select(child_object)
             #prop_point_name = add_prop_point_at_child_object_origin(child_object)
             bpy.ops.3dview.cursor_to_selected()
             bpy.ops.object.add('EMPTY')
             prop_point_object = context.active_object
-            prop_point_object.
+            prop_point_object.name = "prop-" + child_object.name
+            prop_point_object.parent = child_object_duplicate
             #setCursorToCenter()
-            bpy.ops.object.duplicate() # alternatively store previous position
-            child_object_duplicate = context.active_object
             child_object_duplicate.location = (0.0, 0.0, 0.0)
             bpy.ops.object.apply_modifiers()#child_object_duplicate)
             selectedOnly = True
-            # TODO select: child duplicate aka active object + its children that are empties! 
-            for child_child in child_object_duplicate.children:
-                if (child_child.type != 'EMPTY'):
-                    continue
-                child_child.select = True
-            bpy.ops.object.export_collada(mesh_filelink, selectedOnly)#child_object_duplicate is the active object, thus selected and will be exported)
-            bpy.ops.object.collada_export(mesh_filelink, selectedOnly)
             child_actor = export_actor_related_files_recursively(child_object)
+        # TODO select main mesh/object + its prop points, i.e. child empties. Then duplicate all those. 
+        for child_object in o.children:
+            if (child_object.type != 'EMPTY'):
+                continue
+            # it's an empty
+            child_object.select = True
+            
+        bpy.ops.object.export_collada(mesh_filelink, selectedOnly)#child_object_duplicate is the active object, thus selected and will be exported)
+        bpy.ops.object.collada_export(mesh_filelink, selectedOnly)
             prop.actor = child_actor.filelink
             # derive attachpoint by exporting this child_object to .dae:
             prop.attachpoint = prop_point_name

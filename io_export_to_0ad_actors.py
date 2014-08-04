@@ -472,7 +472,22 @@ def export_actor_related_files_recursively(o):
 
         # create the variant for this mesh: (each variant will get the uv_map's name to allow for picking the correct variant according to unit state)
         variant = Variant()
-        variant.mesh = build0AdFilelink(object_with_this_prefix, "meshes/", "subfolder/") # <-- TODO read from GUI setting.
+        # build output filename:
+        mesh_filepath_parts = object_with_this_prefix.split("##")
+        # each non-empty part is a part of the filelink:
+        mesh_filepath_parts_index = -1
+        # no subfolders?
+        variant.mesh = OUTPUT_PATH_BASE_ABSOLUTE + "/" + OUTPUT_SUBFOLDER
+        mesh_filepath_parts_length = len(mesh_filepath_parts)
+        if (mesh_filepath_parts_length < 1):
+            print('No subfolders given in object name. Will use highest level output folder + specified global subfolder.')
+        else:
+            while (++mesh_filepath_parts_index < mesh_filepath_parts_length - 1): # - 1 because the last is no subfolder
+                object_specific_subfolder = mesh_filepath_parts[mesh_filepath_parts_index]
+                variant.mesh += "/" + object_specific_subfolder
+        mesh_filename = mesh_filepath_parts[mesh_filepath_parts_length - 1] + ".dae"
+        variant.mesh += mesh_filename
+        
         texture_variants = {}
         # one (the 2nd!) UV map for ao and one for diffuse (the 1st): all others are seen as variants but are omitted currently. TODO how to distinguish texture types and variants. TODO Use _norm and _ao to figure it out? !! NO! => Those are generated, thus this indeed are variants and not textures.
         # => Texture variants are assigned to the same UV map.
@@ -499,35 +514,58 @@ def export_actor_related_files_recursively(o):
             variants.append(texture_variant) 
         #props_actors = [] #"<props>"
         children_index = -1
-        bpy.ops.object.select_all(action="DESELECT")
-        bpy.ops.object.select(child_object)
         while ++children_index < len(o.children):
             child_object = o.children[children_index]
-            # TODO It may be possible that empties have children, but still empties somehow had to be skipped and their children exported instead and all those child actor filepaths then need to be returned instead of the single empty-filepath (which doesn't exist as empties are prop points and don't exist in their standalone .dae file but only in their parent object's .dae file.).
-            if (child_object.type != "MESH"):
+            # Note: Curves are converted to mesh.
+            if (not is_object_type_considered(child_object.type)):
+                print('object type: ' + child_object.type + ' is marked as not to be considered.')
                 continue
+            if (child_object.type == "EMPTY"):
+                # It will be selected in the next while loop, but it may be possible that empties have children, but still empties somehow had to be skipped and their children exported instead and all those child actor filepaths then need to be returned instead of the single empty-filepath (which doesn't exist as empties are prop points and don't exist in their standalone .dae file but only in their parent object's .dae file.).
+                additional_props = [] 
+                for child_child in child_object.children:
+                    child_child_prop = Prop()
+                    child_child_prop.actor = export_actor_related_files_recursively(child_child)
+                    child_child_prop.attachpoint = "prop-" + child_child.name # TODO That this will be the correct attachpoint name can't be guarantueed this way at all!
+                continue
+            # It's a mesh or curve:
+            #setCursorToCenter()
+            child_object_duplicate.location = (0.0, 0.0, 0.0)
+            bpy.ops.object.apply_modifiers()#child_object_duplicate)
+            selectedOnly = True
+            child_actor = export_actor_related_files_recursively(child_object)
+            
+        # Now we select all that is required to be exported as COLLADA .dae: 
+        # That are the main object/mesh + its child empties, post processed (modifiers applied et alia).
+        # If the main object/mesh is a group instance (if a dupligroup is attached), then we resolve it, duplicate all recursively with its children, apply all modifiers and join them into one single mesh.
+        children_index = -1
+        # deselect all because we need to only have the duplicated child objects that are empties
+        # selected + the duplicated main mesh + the empties that have been added to the duplicated main mesh.
+        bpy.ops.object.select_all(action="DESELECT")
+        bpy.ops.object.select(o)
+        while ++children_index < len(o.children):
+            child_object = o.children[children_index]
+            # also select its predefined prop points (child empties): Then duplicate all those. 
+            if (child_object.type == 'EMPTY'):
+                child_object.select = True
+                continue 
+            # in blender it is ensured that this name assignment is successful, while other equal named empties might get renamed.
+            # Note: It is important that this does not happen in the upper while loop where we recurse on each child as each recursion layer may change the selection or the name as other objects are added with maybe identical names! Otherwise this might be a hard to find bug!
             # it's a mesh child: (add a prop point empty)
             prop = Prop()
             #prop_point_name = add_prop_point_at_child_object_origin(child_object)
             bpy.ops.3dview.cursor_to_selected()
             bpy.ops.object.add('EMPTY')
             prop_point_object = context.active_object
-            prop_point_object.name = "prop-" + child_object.name
             prop_point_object.parent = child_object_duplicate
-            #setCursorToCenter()
-            child_object_duplicate.location = (0.0, 0.0, 0.0)
-            bpy.ops.object.apply_modifiers()#child_object_duplicate)
-            selectedOnly = True
-            child_actor = export_actor_related_files_recursively(child_object)
-        # TODO select main mesh/object + its prop points, i.e. child empties. Then duplicate all those. 
-        for child_object in o.children:
-            if (child_object.type != 'EMPTY'):
-                continue
+            prop_point_object.name = "prop-" + child_object.name
+            
+
             # it's an empty
             child_object.select = True
             
-        bpy.ops.object.export_collada(mesh_filelink, selectedOnly)#child_object_duplicate is the active object, thus selected and will be exported)
-        bpy.ops.object.collada_export(mesh_filelink, selectedOnly)
+        bpy.ops.object.export_collada(variant.mesh, selectedOnly)#child_object_duplicate is the active object, thus selected and will be exported)
+        bpy.ops.object.collada_export(variant.mesh, selectedOnly)
             prop.actor = child_actor.filelink
             # derive attachpoint by exporting this child_object to .dae:
             prop.attachpoint = prop_point_name

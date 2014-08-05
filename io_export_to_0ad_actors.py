@@ -513,26 +513,35 @@ def export_actor_related_files_recursively(o):
         for texture_variant in texture_variants:
             variants.append(texture_variant) 
         #################
-        # Build props:
+        # For each mesh variant build the other actor nodes, props:
         #props_actors = [] #"<props>"
         children_index = -1
         while ++children_index < len(o.children):
             child_object = o.children[children_index]
+            # it's a mesh child: (add a prop point empty)
+            prop = Prop()
             # Note: Curves are converted to mesh.
             if (not is_object_type_considered(child_object.type)):
                 print('object type: ' + child_object.type + ' is marked as not to be considered.')
                 continue
             if (child_object.type == "EMPTY"):
                 # It will be selected in the next while loop, but it may be possible that empties have children, but still empties somehow had to be skipped and their children exported instead and all those child actor filepaths then need to be returned instead of the single empty-filepath (which doesn't exist as empties are prop points and don't exist in their standalone .dae file but only in their parent object's .dae file.).
-                additional_props = [] 
+                # attach several meshes/actors to the same prop point:
                 for child_child in child_object.children:
                     print("Exporting children of EMPTY child objects not yet guarantueed to generate valid output.")
                     child_child_prop = Prop()
+                    child_child_prop.blender_object = child_child
+                    child_child_prop.object_to_derive_attachpoint_name_from = child_object
                     child_child_prop.actor = export_actor_related_files_recursively(child_child)
-                    child_child_prop.attachpoint = "prop-" + child_child.name # TODO That this will be the correct attachpoint name can't be guarantueed this way at all!
+                    child_child_prop.attachpoint = None# <-- placeholder because "prop-" + child_child.name can't be guarantueed to be the correct attachpoint name as we recurse further and change the selection or add objects potentially renaming this object!
+                    variant.props.append(child_child_prop)
                 continue
             # It's a mesh or curve:
-            child_actor = export_actor_related_files_recursively(child_object)
+            prop.blender_object = child_object  # because we need its reference to acces the object's name to properly name the prop-point.
+            prop.object_to_derive_attachpoint_name_from = child_object
+            prop.actor = export_actor_related_files_recursively(child_object) # <-- after this call, all child actor variants + mesh have been exported and are available in the filesystem.
+            prop.attachpoint = None # <-- placeholder. Will be set in a later loop.
+            variant.props.append(prop)
             
         # Now we select all that is required to be exported as COLLADA .dae: 
         # That are the main object/mesh + its child empties, post processed (modifiers applied et alia).
@@ -549,20 +558,28 @@ def export_actor_related_files_recursively(o):
                 continue 
             # in blender it is ensured that this name assignment is successful, while other equal named empties might get renamed.
             # Note: It is important that this does not happen in the upper while loop where we recurse on each child as each recursion layer may change the selection or the name as other objects are added with maybe identical names! Otherwise this might be a hard to find bug!
-            # it's a mesh child: (add a prop point empty)
-            prop = Prop()
+            
+        # At this point we have a valid selection containing of the mesh + its already attached prop points (empties, the non-generated ones only!).
+        bpy.ops.duplicate()
+        # We have to duplicate each separately to keep track of which object was which:
+        #for selected_o in context.selected_objects:
+        #    bpy.ops.
+        #    # TODO 
+            
+        # Now the duplicates are selected.
+        
+        # Add empties at the child position and select them:
+        for p in variant.props:
             #prop_point_name = add_prop_point_at_child_object_origin(child_object)
-            bpy.ops.3dview.cursor_to_selected()
-            bpy.ops.object.add('EMPTY')
+            bpy.ops.3dview.cursor_to_selected() # <-- TODO selected !
+            bpy.ops.object.add('EMPTY')    # <-- TODO: Does this keep up the selection? - Probably yes, but is it certain? 
             prop_point_object = context.active_object
-            prop_point_object.parent = child_object_duplicate
-            prop_point_object.name = "prop-" + child_object.name
-            prop.attachpoint = child_object.name
+            # parent to the current mesh variant object:
+            prop_point_object.parent = o_duplicate
+            # properly name the prop point empties
+            prop_point_object.name = "prop-" + p.object_to_derive_attachpoint_name_from
+            p.attachpoint = p.object_to_derive_attachpoint_name_from
             
-            
-
-            # it's an empty
-            child_object.select = True
         
         # Before export:
         #setCursorToCenter()

@@ -512,6 +512,8 @@ def export_actor_related_files_recursively(o):
 
         for texture_variant in texture_variants:
             variants.append(texture_variant) 
+        #################
+        # Build props:
         #props_actors = [] #"<props>"
         children_index = -1
         while ++children_index < len(o.children):
@@ -524,23 +526,19 @@ def export_actor_related_files_recursively(o):
                 # It will be selected in the next while loop, but it may be possible that empties have children, but still empties somehow had to be skipped and their children exported instead and all those child actor filepaths then need to be returned instead of the single empty-filepath (which doesn't exist as empties are prop points and don't exist in their standalone .dae file but only in their parent object's .dae file.).
                 additional_props = [] 
                 for child_child in child_object.children:
+                    print("Exporting children of EMPTY child objects not yet guarantueed to generate valid output.")
                     child_child_prop = Prop()
                     child_child_prop.actor = export_actor_related_files_recursively(child_child)
                     child_child_prop.attachpoint = "prop-" + child_child.name # TODO That this will be the correct attachpoint name can't be guarantueed this way at all!
                 continue
             # It's a mesh or curve:
-            #setCursorToCenter()
-            child_object_duplicate.location = (0.0, 0.0, 0.0)
-            bpy.ops.object.apply_modifiers()#child_object_duplicate)
-            selectedOnly = True
             child_actor = export_actor_related_files_recursively(child_object)
             
         # Now we select all that is required to be exported as COLLADA .dae: 
         # That are the main object/mesh + its child empties, post processed (modifiers applied et alia).
         # If the main object/mesh is a group instance (if a dupligroup is attached), then we resolve it, duplicate all recursively with its children, apply all modifiers and join them into one single mesh.
         children_index = -1
-        # deselect all because we need to only have the duplicated child objects that are empties
-        # selected + the duplicated main mesh + the empties that have been added to the duplicated main mesh.
+        # deselect all because we need to only have a clean selection of this recursion level depth's object + its empty children.
         bpy.ops.object.select_all(action="DESELECT")
         bpy.ops.object.select(o)
         while ++children_index < len(o.children):
@@ -559,11 +557,18 @@ def export_actor_related_files_recursively(o):
             prop_point_object = context.active_object
             prop_point_object.parent = child_object_duplicate
             prop_point_object.name = "prop-" + child_object.name
+            prop.attachpoint = child_object.name
+            
             
 
             # it's an empty
             child_object.select = True
-            
+        
+        # Before export:
+        #setCursorToCenter()
+        object_duplicate.location = (0.0, 0.0, 0.0) # <-- child objects inherit this location. TODO check in the 0AD Atlas if the children's location has to be applied. 
+        bpy.ops.object.apply_modifiers()#child_object_duplicate)
+            selectedOnly = True
         bpy.ops.object.export_collada(variant.mesh, selectedOnly)#child_object_duplicate is the active object, thus selected and will be exported)
         bpy.ops.object.collada_export(variant.mesh, selectedOnly)
             prop.actor = child_actor.filelink

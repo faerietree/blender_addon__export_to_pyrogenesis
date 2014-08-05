@@ -528,7 +528,7 @@ def export_actor_related_files_recursively(o):
                 # It will be selected in the next while loop, but it may be possible that empties have children, but still empties somehow had to be skipped and their children exported instead and all those child actor filepaths then need to be returned instead of the single empty-filepath (which doesn't exist as empties are prop points and don't exist in their standalone .dae file but only in their parent object's .dae file.).
                 # attach several meshes/actors to the same prop point:
                 for child_child in child_object.children:
-                    print("Exporting children of EMPTY child objects not yet guarantueed to generate valid output.")
+                    print("Exporting children of an EMPTY child object not yet guarantueed to generate valid output.")
                     child_child_prop = Prop()
                     child_child_prop.blender_object = child_child
                     child_child_prop.object_to_derive_attachpoint_name_from = child_object
@@ -585,15 +585,14 @@ def export_actor_related_files_recursively(o):
         #setCursorToCenter()
         object_duplicate.location = (0.0, 0.0, 0.0) # <-- child objects inherit this location. TODO check in the 0AD Atlas if the children's location has to be applied. 
         bpy.ops.object.apply_modifiers()#child_object_duplicate)
-            selectedOnly = True
+        selectedOnly = True
         bpy.ops.object.export_collada(variant.mesh, selectedOnly)#child_object_duplicate is the active object, thus selected and will be exported)
         bpy.ops.object.collada_export(variant.mesh, selectedOnly)
-            prop.actor = child_actor.filelink
-            # derive attachpoint by exporting this child_object to .dae:
-            prop.attachpoint = prop_point_name
             
-            variant.props.append(prop)
         variants.append(variant)
+
+
+    # At this point all variants have been created. Now optionally, those could be merged.
 
 
     # determine commons of all variants: (If we wanted to simplify, then we could pack it all into one group containing redundant variants. That'd be the easy way. We take the difficult, but less redundant branch. Note: Within one variant, attaching to the same attachpoint adds yet another prop to this point, while the first attachment to a prop-point in a variant will overwrite the other props that may have been attached by other selected variants of other (previous) groups.)
@@ -610,7 +609,7 @@ def export_actor_related_files_recursively(o):
     # 1x the base group (containing exactly 1 variant that contains all that is common to all variants),
     # 1x the group containing all other variants. (TODO Maybe even logically sub-distinguish this group further by creating more groups?)
     variants_distinct_group = Group()
-    variants_distinct_group.variants.append(variants)
+    variants_distinct_group.variants = variants
     #TODO distinct_variant_groups_settled_upon = furtherSubdivideTheVariantGroup(variant_group)
     
 
@@ -625,10 +624,13 @@ def export_actor_related_files_recursively(o):
 
     
     
-    actor_filelink = target_mod_path "art/actors/" target_subfolder "/" tidyUpName(o.name) ".xml" #build_filelink(context)
+    actor_filelink = target_mod_path + "art/actors/" + target_subfolder + "/" + tidyUpName(o.name) + ".xml" #build_filelink(context)
     if (write2file(actor.toXml(), actor_filelink)):
         print('=> Created actor file: ' + actor + ' with content: ' + actor.toXml()) 
         all_exported_actors.append(actor)
+        
+    for duplicate in context.select_objects:
+        bpy.ops.delete(duplicate)
         
     return actor #TODO The groups (group instances) still show up redundantly (1x <group1>
                                                                                     # 2x <group1>

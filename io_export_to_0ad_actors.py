@@ -509,11 +509,13 @@ def export_actor_related_files_recursively(o):
                 if not file_exists(output_filelink):
                     mesh_texture_poly.data.save_render(output_filelink)
                 
-
+        # append each variant + its mesh as those are tightly connected, i.e. depending on the mesh's UV map, a texture fits or does not:
         for texture_variant in texture_variants:
+            texture_variant.mesh = variant.mesh
             variants.append(texture_variant) 
+            
         #################
-        # For each mesh variant build the other actor nodes, props:
+        # For each mesh variant (object with same prefix) also try to build props:
         #props_actors = [] #"<props>"
         children_index = -1
         while ++children_index < len(o.children):
@@ -560,29 +562,47 @@ def export_actor_related_files_recursively(o):
             # Note: It is important that this does not happen in the upper while loop where we recurse on each child as each recursion layer may change the selection or the name as other objects are added with maybe identical names! Otherwise this might be a hard to find bug!
             
         # At this point we have a valid selection containing of the mesh + its already attached prop points (empties, the non-generated ones only!).
-        bpy.ops.duplicate()
+        #bpy.ops.duplicate()
         # We have to duplicate each separately to keep track of which object was which:
-        #for selected_o in context.selected_objects:
-        #    bpy.ops.
-        #    # TODO 
-            
+        selected_objects = context.selected_objects.copy()  #<-- needed because we will change the selection in the loop!
+        duplicates_to_be_selected = []
+        for selected_o in selected_objects:
+            bpy.ops.object.select_all(action="DESELECT")
+            bpy.ops.object.select(selected_o)
+            bpy.ops.duplicate()
+            # resolve its corresponding prop using the non duplicated object:
+            for p in variant.props:
+                if (p.blender_object == selected_o):
+                    # => found the correct prop.
+                    p.blender_object_duplicate = context.active_object
+                    break
+            duplicates_to_be_selected.append(selected_o) 
+                    
+                
+        # Select all the duplicates:
+        for duplicate in duplicates_to_be_selected:
+            duplicate.select = True
+
+
         # Now the duplicates are selected.
         
         # Add empties at the child position and select them:
         for p in variant.props:
             #prop_point_name = add_prop_point_at_child_object_origin(child_object)
             bpy.ops.3dview.cursor_to_selected() # <-- TODO selected !
+            #if (not p.blender_object.type == 'EMPTY'):
+            #    # add emtpy, select, deselect the real (non-empty) empty.
             bpy.ops.object.add('EMPTY')    # <-- TODO: Does this keep up the selection? - Probably yes, but is it certain? 
             prop_point_object = context.active_object
             # parent to the current mesh variant object:
-            prop_point_object.parent = o_duplicate
+            prop_point_object.parent = p.blender_object_duplicate
             # properly name the prop point empties
             prop_point_object.name = "prop-" + p.object_to_derive_attachpoint_name_from
             p.attachpoint = p.object_to_derive_attachpoint_name_from
         
 
         #################
-        # EXPORT
+        # EXPORT using the duplicates
         #################
         # Before export:
         #setCursorToCenter()

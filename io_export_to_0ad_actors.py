@@ -579,8 +579,11 @@ def export_actor_related_files_recursively(o):
             # properly name the prop point empties
             prop_point_object.name = "prop-" + p.object_to_derive_attachpoint_name_from
             p.attachpoint = p.object_to_derive_attachpoint_name_from
-            
         
+
+        #################
+        # EXPORT
+        #################
         # Before export:
         #setCursorToCenter()
         object_duplicate.location = (0.0, 0.0, 0.0) # <-- child objects inherit this location. TODO check in the 0AD Atlas if the children's location has to be applied. 
@@ -632,9 +635,7 @@ def export_actor_related_files_recursively(o):
     for duplicate in context.select_objects:
         bpy.ops.delete(duplicate)
         
-    return actor #TODO The groups (group instances) still show up redundantly (1x <group1>
-                                                                                    # 2x <group1>
-                                                                                    # 1x <group2>)
+    return actor
 
 
 

@@ -465,6 +465,7 @@ def export_actor_related_files_recursively(o):
     
     while ++all_objects_with_this_prefix_index < len(all_objects_with_this_prefix):
         object_with_this_prefix = all_objects_with_this_prefix[all_objects_with_this_prefix_index]
+        object_with_this_prefix_duplicate = None
         
         if (object_with_this_prefix.type != 'MESH'):
             continue
@@ -518,8 +519,8 @@ def export_actor_related_files_recursively(o):
         # For each mesh variant (object with same prefix) also try to build props:
         #props_actors = [] #"<props>"
         children_index = -1
-        while ++children_index < len(o.children):
-            child_object = o.children[children_index]
+        while ++children_index < len(object_with_this_prefix.children):
+            child_object = object_with_this_prefix.children[children_index]
             # it's a mesh child: (add a prop point empty)
             prop = Prop()
             # Note: Curves are converted to mesh.
@@ -532,14 +533,14 @@ def export_actor_related_files_recursively(o):
                 for child_child in child_object.children:
                     print("Exporting children of an EMPTY child object not yet guarantueed to generate valid output.")
                     child_child_prop = Prop()
-                    child_child_prop.blender_object = child_child
+                    child_child_prop.prop_object = child_child
                     child_child_prop.object_to_derive_attachpoint_name_from = child_object
                     child_child_prop.actor = export_actor_related_files_recursively(child_child)
                     child_child_prop.attachpoint = None# <-- placeholder because "prop-" + child_child.name can't be guarantueed to be the correct attachpoint name as we recurse further and change the selection or add objects potentially renaming this object!
                     variant.props.append(child_child_prop)
                 continue
             # It's a mesh or curve:
-            prop.blender_object = child_object  # because we need its reference to acces the object's name to properly name the prop-point.
+            prop.prop_object = child_object  # because we need its reference to acces the object's name to properly name the prop-point.
             prop.object_to_derive_attachpoint_name_from = child_object
             prop.actor = export_actor_related_files_recursively(child_object) # <-- after this call, all child actor variants + mesh have been exported and are available in the filesystem.
             prop.attachpoint = None # <-- placeholder. Will be set in a later loop.
@@ -549,15 +550,15 @@ def export_actor_related_files_recursively(o):
         # That are the main object/mesh + its child empties, post processed (modifiers applied et alia).
         # If the main object/mesh is a group instance (if a dupligroup is attached), then we resolve it, duplicate all recursively with its children, apply all modifiers and join them into one single mesh.
         children_index = -1
-        # deselect all because we need to only have a clean selection of this recursion level depth's object + its empty children.
+        # deselect all because we need to only have a clean selection of this recursion level depth's object + its children.
         bpy.ops.object.select_all(action="DESELECT")
-        bpy.ops.object.select(o)
-        while ++children_index < len(o.children):
-            child_object = o.children[children_index]
+        bpy.ops.object.select(object_with_this_prefix)
+        while ++children_index < len(object_with_this_prefix.children):
+            child_object = object_with_this_prefix.children[children_index]
             # also select its predefined prop points (child empties): Then duplicate all those. 
-            if (child_object.type == 'EMPTY'):
-                child_object.select = True
-                continue 
+            #if (child_object.type == 'EMPTY'):
+            child_object.select = True
+            #    continue 
             # in blender it is ensured that this name assignment is successful, while other equal named empties might get renamed.
             # Note: It is important that this does not happen in the upper while loop where we recurse on each child as each recursion layer may change the selection or the name as other objects are added with maybe identical names! Otherwise this might be a hard to find bug!
             
@@ -565,48 +566,74 @@ def export_actor_related_files_recursively(o):
         #bpy.ops.duplicate()
         # We have to duplicate each separately to keep track of which object was which:
         selected_objects = context.selected_objects.copy()  #<-- needed because we will change the selection in the loop!
-        duplicates_to_be_selected = []
+        duplicates = [] #_to_be_selected = []
         for selected_o in selected_objects:
             bpy.ops.object.select_all(action="DESELECT")
             bpy.ops.object.select(selected_o)
             bpy.ops.duplicate()
             # resolve its corresponding prop using the non duplicated object:
+            wasPropOrMainMeshFound = false
             for p in variant.props:
-                if (p.blender_object == selected_o):
+                if (p.object_to_derive_attachpoint_name_from == selected_o):
                     # => found the correct prop.
-                    p.blender_object_duplicate = context.active_object
+                    p.prop_object_duplicate = context.active_object
+                    print('prop: ' + p + ' prop_object: ' + p.prop_object + ' prop_object_duplicate: ' + p.prop_object_duplicate)
+                    wasPropOrMainMeshFound = true
                     break
-            duplicates_to_be_selected.append(selected_o) 
+                elif (selected_o == object_with_this_prefix):
+                    object_with_this_prefix_duplicate = context.active_object
+                    wasPropOrMainMeshFound = true
+                    break
+            if (not wasPropOrMainMeshFound):
+                print('Object '+ selected_o +' was neither found in one of the props, nor was it the main mesh.')
+            else:    
+                duplicates.append(context.active_object)
                     
                 
-        # Select all the duplicates:
-        for duplicate in duplicates_to_be_selected:
-            duplicate.select = True
-
-
-        # Now the duplicates are selected.
-        
-        # Add empties at the child position and select them:
+        duplicates_main_object_and_child_empties_only = []
+        # For each child we've added a prop.
+        # Now add empties at the child position and select them:
         for p in variant.props:
             #prop_point_name = add_prop_point_at_child_object_origin(child_object)
-            bpy.ops.3dview.cursor_to_selected() # <-- TODO selected !
-            #if (not p.blender_object.type == 'EMPTY'):
-            #    # add emtpy, select, deselect the real (non-empty) empty.
-            bpy.ops.object.add('EMPTY')    # <-- TODO: Does this keep up the selection? - Probably yes, but is it certain? 
-            prop_point_object = context.active_object
+            bpy.ops.object.select_all(action="DESELECT")
+            # select exactly 1 object:
+            prop_point_object = p.prop_object_duplicate
+            if (p.prop_object_duplicate.type != 'EMPTY'):
+                # add emtpy, select, deselect the real (non-empty) empty.
+                bpy.ops.object.select(p.prop_object_duplicate)
+                bpy.ops.3dview.cursor_to_selected()
+                bpy.ops.object.add('EMPTY')    # <-- TODO: Does this keep up the selection? - Probably yes, but is it certain? 
+                prop_point_object = context.active_object
             # parent to the current mesh variant object:
-            prop_point_object.parent = p.blender_object_duplicate
+            prop_point_object.parent = object_with_this_prefix_duplicate#p.prop_object_duplicate
+            duplicates_main_object_and_child_empties_only.append(prop_point_object)
             # properly name the prop point empties
             prop_point_object.name = "prop-" + p.object_to_derive_attachpoint_name_from
             p.attachpoint = p.object_to_derive_attachpoint_name_from
+            print(prop_point_object.name + ' ' + p.attachpoint)
         
+
+        # Place the main mesh object duplicate at the scene's center to result in a proper origin prior to export: (otherwise the props appear everywhere with an offset, but not where they should appear.)
+        bpy.ops.object.select_all(action="DESELECT")
+        # select exactly 1 object:
+        bpy.ops.object.select(object_with_this_prefix_duplicate)
+        object_with_this_prefix_duplicate.location = (0.0, 0.0, 0.0) # <-- child objects inherit this location. TODO check in the 0AD Atlas if the children's location has to be applied. 
+        #bpy.ops.3dview.cursor_to_center()
+        #bpy.ops.3dview.selection_to_cursor()    # TODO Despite child objects being moved with the parent object, do we need to apply each child's location?
+
+
+        # Before export:
+        # Select all the duplicates for exporting to COLLADA:
+        for duplicate in duplicates_main_object_and_child_empties_only:
+            duplicate.select = True
+
+        # Now the duplicates are selected.
+        
+
 
         #################
         # EXPORT using the duplicates
         #################
-        # Before export:
-        #setCursorToCenter()
-        object_duplicate.location = (0.0, 0.0, 0.0) # <-- child objects inherit this location. TODO check in the 0AD Atlas if the children's location has to be applied. 
         bpy.ops.object.apply_modifiers()#child_object_duplicate)
         selectedOnly = True
         bpy.ops.object.export_collada(variant.mesh, selectedOnly)#child_object_duplicate is the active object, thus selected and will be exported)
@@ -652,7 +679,7 @@ def export_actor_related_files_recursively(o):
         print('=> Created actor file: ' + actor + ' with content: ' + actor.toXml()) 
         all_exported_actors.append(actor)
         
-    for duplicate in context.select_objects:
+    for duplicate in duplicates:
         bpy.ops.delete(duplicate)
         
     return actor

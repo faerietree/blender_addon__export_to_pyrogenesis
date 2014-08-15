@@ -84,12 +84,11 @@ skip_non_mechanical_objects = True
 after_how_many_create_actor_recursions_to_abort = 100#kind a century :)
 
 
-filelink = None
 
 header = '<?xml version="1.0" encoding="utf-8"?>'
 header = header + "\n" + '<actor version="1">'
 
-header_ = '</actor>'
+header_ = "\n" + '</actor>'
 
 
 
@@ -346,9 +345,9 @@ def export_actor_related_files_recursively(o):
         if (is_object_type_considered(o.type)):#(o_bjects has to be an object for type to exist)
 
             #Is not a group instance?        
-            if (o_bjects.dupli_group is None):
+            if (o.dupli_group is None):
                     #or o_bjects.dupli_type is not 'GROUP'<--TODO:superfluous? What effects does changing the duplitype setting have?
-                if (not o_bjects.is_visible(context.scene)):
+                if (not o.is_visible(context.scene)):
                     if debug:
                         print('Object ', o,' is not visible in the current scene: ', context.scene)
                     return {'CANCELLED'}
@@ -429,17 +428,30 @@ def export_actor_related_files_recursively(o):
     # Both .xml for the actor and .dae for the mesh are required and 
     # should have a consistent subfolder structure as both are content paths.
     ############
-    mesh_filelink = target_mod_path + "art/meshes/" + target_subfolder + "/" + tidyUpName(o.name) + ".dae"
-    texture_output_directory = target_mod_path + "art/textures/skins/" + target_subfolder + "/"# + o.data.uv_textures.active.name #+ ".png"
+    target_subfolder = "" #TODO derive from object name. Already done below but has to be generalised.
+    mesh_filelink = os.path.join(
+            context.scene.selection2actors_in_target_path_base,
+            context.scene.selection2actors_in_target_path_mod,
+            context.scene.selection2actors_in_target_mesh_folder,
+            target_subfolder,
+            tidyUpName(o.name) + ".dae"
+    )
+    texture_output_directory = os.path.join( # + o.data.uv_textures.active.name #+ ".png
+            context.scene.selection2actors_in_target_path_base,
+            context.scene.selection2actors_in_target_path_mod,
+            context.scene.selection2actors_in_target_texture_folder,
+            target_subfolder,
+            "" # <-- add the correct slash at the end.
+    )
     
-
+    
     actor = Actor()  # implicitely calling the Actor class' __init__ method. (the constructor)
     
     ##########
     # OBJECTS (including group instances as those are attached to objects, see dupligroup 
     #          http://wiki.blender.org/index.php/Doc:2.6/Manual/Modeling/Objects/Duplication/DupliGroup)
     ##########
-   
+    
     #TIDY UP ACTOR VARIANTS XML (Summarize)
     # Figure variants, highly redundant, i.e. each mesh has a variant for each of its UV assigned textures:
     variants = []
@@ -470,11 +482,11 @@ def export_actor_related_files_recursively(o):
         if (object_with_this_prefix.type != 'MESH'):
             continue
         
-
+        
         # create the variant for this mesh: (each variant will get the uv_map's name to allow for picking the correct variant according to unit state)
         variant = Variant()
         # build output filename:
-        mesh_filepath_parts = object_with_this_prefix.split("##")
+        mesh_filepath_parts = object_with_this_prefix.name.split("##")
         # each non-empty part is a part of the filelink:
         mesh_filepath_parts_index = -1
         # no subfolders?
@@ -555,13 +567,13 @@ def export_actor_related_files_recursively(o):
         
         bpy.ops.object.select_all(action="DESELECT")
         bpy.ops.object.select(object_with_this_prefix)
-        bpy.ops.duplicate()
+        bpy.ops.object.duplicate()
         object_with_this_prefix_duplicate = context.active_object
         duplicates_main_object_and_child_empties_only.append(object_with_this_prefix_duplicate)
         for child_object in object_with_this_prefix.children:
             bpy.ops.object.select_all(action="DESELECT")
             bpy.ops.object.select(child_object)
-            bpy.ops.duplicate()
+            bpy.ops.object.duplicate()
             # resolve its corresponding prop using the non duplicated object:
             wasPropOrMainMeshFound = false
             for p in variant.props:
@@ -587,7 +599,7 @@ def export_actor_related_files_recursively(o):
             if (p.prop_object_duplicate.type != 'EMPTY'):
                 # add emtpy, select, deselect the real (non-empty) empty.
                 bpy.ops.object.select(p.prop_object_duplicate)
-                bpy.ops.3dview.cursor_to_selected()
+                bpy.ops.view3d.cursor_to_selected()
                 bpy.ops.object.add('EMPTY')    # <-- TODO: Does this keep up the selection? - Probably yes, but is it certain? 
                 prop_point_object = context.active_object
             # parent to the current mesh variant object:
@@ -629,7 +641,7 @@ def export_actor_related_files_recursively(o):
             bpy.ops.duplicates_make_real()
         
         if (len(group_objects_duplicates) > 0):
-            # convert if posible:
+            # convert if possible:
             for g_o_d in group_objects_duplicates:
                 if (g_o_d.type == 'CURVE'):
                     bpy.ops.object.select_all(action="DESELECT")
@@ -653,8 +665,8 @@ def export_actor_related_files_recursively(o):
             
         # Place the main mesh object duplicate at the scene's center to result in a proper origin prior to export: (otherwise the props appear everywhere with an offset, but not where they should appear.)
         object_with_this_prefix_duplicate.location = (0.0, 0.0, 0.0) # <-- child objects inherit this location. TODO check in the 0AD Atlas if the children's location has to be applied. 
-        #bpy.ops.3dview.cursor_to_center()
-        #bpy.ops.3dview.selection_to_cursor()    # TODO Despite child objects being moved with the parent object, do we need to apply each child's location?
+        #bpy.ops.view3d.cursor_to_center()
+        #bpy.ops.view3d.selection_to_cursor()    # TODO Despite child objects being moved with the parent object, do we need to apply each child's location?
 
 
         # Before export:
@@ -1387,11 +1399,12 @@ def register():
     bpy.types.Scene.selection2actors_in_mode = EnumProperty(
         name = "Mode",
         description = "Select whether to resolve parents "
-                " underlaying group's contained objects or if a group"
-                " is a standalone part on its own too.",
+                " and start from each of those found highest level parent elements."
+                " Or if the current selection shall be used as starting point. (Only children will be exported.)",
         items = [
             ("0", "Resolve parents", ""),
-            ("1", "Only selection.", "")
+            ("1", "Start with selected, include children.", ""),
+            ("2", "Start with selected, only selection children.", "")
         ],
         default='0'
     )
@@ -1399,15 +1412,42 @@ def register():
     bpy.types.Scene.selection2actors_in_include_hidden = BoolProperty(
         name = "Include hidden objects?",
         description = "Whether to include hidden objects or not.",
-        default = True
+        default = False
     )
-    # output path
-    bpy.types.Scene.selection2actors_in_target_path = TextProperty(
-        name = "Path ",
-        description = "target_path, i.e. digits after the comma. (e.g. 3 at default metric unit settings results in a resolution of .001m = 1mm.)"
+    # output base path
+    bpy.types.Scene.selection2actors_in_target_path_base = StringProperty(
+        name = "Path base",
+        description = "Target path base."
         #,options = {'HIDDEN'}
-        ,default = "."
+        ,default = "~/0ad/binaries/data/mods/"
     )
+    # mod folder
+    bpy.types.Scene.selection2actors_in_target_path_mod = StringProperty(
+        name = "Target mod folder",
+        description = "Target path mod folder.",
+        default = "public/"
+    )
+    # mesh folder
+    bpy.types.Scene.selection2actors_in_target_mesh_folder = StringProperty(
+        name = "Mesh folder",
+        description = "Target path to meshes.",
+        default = "art/meshes/"
+    )
+    # texture folder
+    bpy.types.Scene.selection2actors_in_target_texture_folder = StringProperty(
+        name = "Texture  folder",
+        description = "Target path to textures.",
+        default = "art/textures/skins/"
+    )
+    # actor folder
+    bpy.types.Scene.selection2actors_in_target_actor_folder = StringProperty(
+        name = "Actor XML folder",
+        description = "Target path to Actor XML files.",
+        default = "art/actors/"
+    )
+    # animation folder
+    #TODO Export the same as the mesh.dae to the animation folder, make sure animations get exported properly.
+    
     #pass
 
 
@@ -1450,8 +1490,8 @@ class Actor():
         "\n"
         '<actor version="1">'
         for group in self.groups:
-            xml = xml "\n" group.toXml()
-        xml = xml '</actor>'
+            xml = xml + "\n" + group.toXml()
+        xml = xml + '</actor>'
         return xml
 
 
@@ -1465,8 +1505,8 @@ class Group():
     def toXml():
         xml = "<group>\n"
         for variant in self.variants:
-            xml = xml "\n" variant.toXml()
-        xml = xml "\n  " '</group>' "\n"
+            xml = xml + "\n" + variant.toXml()
+        xml = xml + "\n  " + '</group>' + "\n"
         return xml
 
 
@@ -1483,10 +1523,10 @@ class Variant():
     def toXml():
         props_xml = ''
         for prop in self.props: #TODO use sorted(set(list)) to have a unique sorted sequence? Will objects be removed by set if the address is  equal? It is to be expected but is it certain?
-            props_xml = props_xml "\n" prop.toXml()
+            props_xml = props_xml + "\n" + prop.toXml()
             
         node_name = self.__class__.__name__.lower()
-        return '<' node_name ' name="' self.actor_filelink_relative '" frequency="' self.frequency '">' props_xml '</' node_name '>'
+        return '<' + node_name + ' name="' + self.actor_filelink_relative + '" frequency="' + self.frequency + '">' + props_xml + '</' + node_name + '>'
 
 
 
@@ -1499,7 +1539,7 @@ class Prop():
     
     def toXml():
         node_name = self.__class__.__name__.lower()
-        return '<' node_name ' actor="' self.actor_filelink_relative '" attachpoint="' self.attachpoint '"></' node_name '>'
+        return '<' + node_name + ' actor="' + self.actor_filelink_relative + '" attachpoint="' + self.attachpoint + '"></' + node_name + '>'
     
 
 

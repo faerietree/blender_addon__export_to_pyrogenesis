@@ -200,20 +200,21 @@ def act(context):
     distinct_parents_of_selected_objects = []
     for obj in context.selected_objects:
         # Optionally travel up the hierarchy automatically. Else each selected object is assumed to be the highest to be exported.
-        if (not context.scene.export_to_0ad__auto_resolve_parent):
+        if (context.scene.export_to_0ad_in_mode != '0'):#auto_resolve_parent):
             distinct_parents_of_selected_objects = context.selected_objects.copy()
         else:
             childOrHighest = obj
             while (childOrHighest.parent):
                 childOrHighest = childOrHighest.parent
             # We have reached the highest level parent once the childOrHighest hasn't any parent.
-            if (not distinct_parents_of_selected_objects.contains(childOrHighest)):
+            if (not childOrHighest in distinct_parents_of_selected_objects):
+                #childOrHighest_index = distinct_parents_of_selected_objects.index(childOrHighest)
                 distinct_parents_of_selected_objects.append(childOrHighest)
     
     # If only one main actor is exported at once, then there will only be one distinct parent:
     for distinct_parent in distinct_parents_of_selected_objects:
         # Start with the determined highest level parent: 
-        last_created_actor = export_actor_related_files_recursively(obj)
+        last_created_actor = export_actor_related_files_recursively(context, obj)
         #if (file_exists(last_created_actor.filelink)):
         print('Created actor: ' + last_created_actor)
         
@@ -253,7 +254,7 @@ def act(context):
             continue#next Group within the blend file
             
         #Add this group to the bill of materials as standalone complete part on its own (not resolving to objects)?
-        if (not context.scene.selection2actors_in_mode == '0'):#not resolve_groups):
+        if (not context.scene.export_to_0ad_in_mode == '0'):#not resolve_groups):
             #group has a partname identifier and this hopefully contains a material:<material>,
             # => try to compile a bom entry out of this, if not possible then lookup the material from the objects,
             # => i.e. either compose a list of materials being used in the group (Aluminium, Stainless Steel, Diamond)
@@ -306,7 +307,7 @@ def act(context):
 #
 all_exported_actors = []
 create_actor_recursion_depth = 0
-def export_actor_related_files_recursively(o):
+def export_actor_related_files_recursively(context, o):
     global all_exported_actors  # To allow writing access to the global variable.
     global create_actor_recursion_depth
     create_actor_recursion_depth = create_actor_recursion_depth + 1
@@ -374,7 +375,7 @@ def export_actor_related_files_recursively(o):
                     print("It's a Group instance! Attached dupli group: ", o.dupli_group)
                     
                 #Resolving groups is not desired?
-                if (context.scene.selection2actors_in_mode == '0'):
+                if (context.scene.export_to_0ad_in_mode == '0'):
                     if debug:
                         print('Group shall not be resolved. Is considered a standalone complete part on its own.')
                     #This object is functioning as a group instance container and resembles a standalone mechanical part!
@@ -428,19 +429,16 @@ def export_actor_related_files_recursively(o):
     # Both .xml for the actor and .dae for the mesh are required and 
     # should have a consistent subfolder structure as both are content paths.
     ############
-    target_subfolder = "" #TODO derive from object name. Already done below but has to be generalised.
-    mesh_filelink = os.path.join(
-            context.scene.selection2actors_in_target_path_base,
-            context.scene.selection2actors_in_target_path_mod,
-            context.scene.selection2actors_in_target_mesh_folder,
-            target_subfolder,
-            tidyUpName(o.name) + ".dae"
+    mesh_filelink_base = os.path.join(
+            context.scene.export_to_0ad_in_target_path_base,
+            context.scene.export_to_0ad_in_target_path_mod,
+            context.scene.export_to_0ad_in_target_mesh_folder,
+            "" # <-- add the correct slash at the end.
     )
-    texture_output_directory = os.path.join( # + o.data.uv_textures.active.name #+ ".png
-            context.scene.selection2actors_in_target_path_base,
-            context.scene.selection2actors_in_target_path_mod,
-            context.scene.selection2actors_in_target_texture_folder,
-            target_subfolder,
+    texture_filelink_base = os.path.join( # + o.data.uv_textures.active.name #+ ".png
+            context.scene.export_to_0ad_in_target_path_base,
+            context.scene.export_to_0ad_in_target_path_mod,
+            context.scene.export_to_0ad_in_target_texture_folder,
             "" # <-- add the correct slash at the end.
     )
     
@@ -486,20 +484,8 @@ def export_actor_related_files_recursively(o):
         # create the variant for this mesh: (each variant will get the uv_map's name to allow for picking the correct variant according to unit state)
         variant = Variant()
         # build output filename:
-        mesh_filepath_parts = object_with_this_prefix.name.split("##")
-        # each non-empty part is a part of the filelink:
-        mesh_filepath_parts_index = -1
-        # no subfolders?
-        variant.mesh = OUTPUT_PATH_BASE_ABSOLUTE + "/" + OUTPUT_SUBFOLDER
-        mesh_filepath_parts_length = len(mesh_filepath_parts)
-        if (mesh_filepath_parts_length < 1):
-            print('No subfolders given in object name. Will use highest level output folder + specified global subfolder.')
-        else:
-            while (++mesh_filepath_parts_index < mesh_filepath_parts_length - 1): # - 1 because the last is no subfolder
-                object_specific_subfolder = mesh_filepath_parts[mesh_filepath_parts_index]
-                variant.mesh += "/" + object_specific_subfolder
-        mesh_filename = mesh_filepath_parts[mesh_filepath_parts_length - 1] + ".dae"
-        variant.mesh += mesh_filename
+        ensure_filelink_not_exists = context.export_to_0ad_in_overwrite_existing
+        variant.mesh = build_filelink(context, object_with_this_prefix.name, ".dae", ensure_filelink_not_exists, mesh_filelink_base)
         
         texture_variants = {}
         # one (the 2nd!) UV map for ao and one for diffuse (the 1st): all others are seen as variants but are omitted currently. TODO how to distinguish texture types and variants. TODO Use _norm and _ao to figure it out? !! NO! => Those are generated, thus this indeed are variants and not textures.
@@ -515,12 +501,13 @@ def export_actor_related_files_recursively(o):
                 texture_variant.name = uv_map_name + '' + rand()
                 texture_variant.textures.append(mesh_texture_poly.filepath)
                 # file_format UPPERCASE
-                # TODO if image not exists in textures/skins/... output directory, then create it:
+                # if image not exists in textures/skins/... output directory, then create it:
                 parts = mesh_texture_poly.filepath.split("\/");
-                output_filelink = texure_output_directory + parts[len(parts) - 1];
-                print('output_filelink: ' + output_filelink)
-                if not file_exists(output_filelink):
-                    mesh_texture_poly.data.save_render(output_filelink)
+                #output_filelink = build_filelink(context, parts[len(parts) - 1], "", ensure_filelink_not_exists, texture_filelink_base)
+                texture_output_filelink = os.path.join(texture_filelink_base, parts[len(parts) - 1])
+                print('texture output_filelink: ' + texture_output_filelink)
+                if not os.path.isfile(texture_output_filelink):
+                    mesh_texture_poly.data.save_render(texture_output_filelink)
                 
         # append each variant + its mesh as those are tightly connected, i.e. depending on the mesh's UV map, a texture fits or does not:
         for texture_variant in texture_variants:
@@ -547,14 +534,14 @@ def export_actor_related_files_recursively(o):
                     child_child_prop = Prop()
                     child_child_prop.prop_object = child_child
                     child_child_prop.object_to_derive_attachpoint_name_from = child_object
-                    child_child_prop.actor = export_actor_related_files_recursively(child_child)
+                    child_child_prop.actor = export_actor_related_files_recursively(context, child_child)
                     child_child_prop.attachpoint = None# <-- placeholder because "prop-" + child_child.name can't be guarantueed to be the correct attachpoint name as we recurse further and change the selection or add objects potentially renaming this object!
                     variant.props.append(child_child_prop)
                 continue
             # It's a mesh or curve:
             prop.prop_object = child_object  # because we need its reference to acces the object's name to properly name the prop-point.
             prop.object_to_derive_attachpoint_name_from = child_object
-            prop.actor = export_actor_related_files_recursively(child_object) # <-- after this call, all child actor variants + mesh have been exported and are available in the filesystem.
+            prop.actor = export_actor_related_files_recursively(context, child_object) # <-- after this call, all child actor variants + mesh have been exported and are available in the filesystem.
             prop.attachpoint = None # <-- placeholder. Will be set in a later loop.
             variant.props.append(prop)
             
@@ -1030,9 +1017,9 @@ def build_bom_entry(context, o):
         unit = 'ft'
     #determine units using the unit scale of the scene's unit/world settings
     dimensions = [
-        str(round(x * context.scene.unit_settings.scale_length, context.scene.selection2actors_in_target_path)) + unit,
-        str(round(y * context.scene.unit_settings.scale_length, context.scene.selection2actors_in_target_path)) + unit,
-        str(round(z * context.scene.unit_settings.scale_length, context.scene.selection2actors_in_target_path)) + unit
+        str(round(x * context.scene.unit_settings.scale_length, context.scene.export_to_0ad_in_digit_count)) + unit,
+        str(round(y * context.scene.unit_settings.scale_length, context.scene.export_to_0ad_in_digit_count)) + unit,
+        str(round(z * context.scene.unit_settings.scale_length, context.scene.export_to_0ad_in_digit_count)) + unit
     ]
     
     
@@ -1143,35 +1130,55 @@ def append_to_file(context, content):
 
 
 
-def build_filelink(context):
+def build_filelink(context, objectname, fileending = "", ensure_filelink_not_exists = True, basedirectory = None):
     if debug:
         print('building filelink ...')
-
-    #build filelink
-    root = './'#using relative paths -> to home directory
+        
+    
+    filelink = ""
+    
+    # build filelink
+    
+    # base path:
+    filelink = os.path.join(context.scene.export_to_0ad_in_target_path_base, context.scene.export_to_0ad_in_target_path_mod)
+    # If a relative filelink or a special subfolder that can't be derived from the objectname is desired, then use the basedirectory parameter:
+    if (not basedirectory is None):
+        filelink = basedirectory #'./' # using relative paths -> relative to home directory
+        
     #root = os.getcwd()#<-- the directory of the current file (the question is of it's the blend file?)
     #root = dirname(pathname(__FILE__))#http://stackoverflow.com/questions/5137497/find-current-directory-and-files-directory
     filename = ''#TODO Determine this blender file name!
-    fileending = '.xml'
+     
+    filepath_parts = object_name.split("##")
+    filepath_parts_length = len(filepath_parts)
+    # no subfolders?
+    if (filepath_parts_length < 1):
+        print('No subfolders given in object name: ' + object_name + '. Will use highest level output folder + specified global subfolder.')
+    else:
+        filepath_parts_index = -1
+        # each non-empty part is a part of the filelink:
+        while (++filepath_parts_index < filepath_parts_length - 1): # - 1 because the last is no subfolder
+            object_specific_subfolder = filepath_parts[filepath_parts_index]
+            print('Found subfolder in object name: ' + object_specific_subfolder)
+            filelink = os.path.join(filelink, object_specific_subfolder)
+            
+    filename = filepath_parts[filepath_parts_length - 1]
     
-    #objectname = getBaseName(context.selected_objects[0].name)
-    objectname = context.scene.objects.active #context.active_object    
-    objectname = context.scene.name
-    if (not objectname or objectname is None):
-        objectname = 'no-or-buggy-active-object'
+    filelink = os.path.join(filelink, filename)
+    if (not fileending is None and fileending != ""):
+        # Does not yet contain a dot?
+        if (fileending.find('[.]') == -1):
+            fileending = "." + fileending
+        filelink = filelink + fileending
     
-    filename = filename + objectname
-    filelink = root + filename + fileending
-    
-    #don't overwrite existing boms because for several selections individual boms
-    # could be desired.
+    # Don't overwrite existing files because for several selections individual boms could be desired.
     number = 0
     while (os.path.isfile(filelink)):#alternatively: try: with (open(filelink)): ... except IOError: print('file not found') 
         number = number + 1              #http://stackoverflow.com/questions/82831/how-do-i-check-if-a-file-exists-using-python
         filename_ = filename + str(number)
         filelink = filename_ + fileending
 
-    #A non-existant filelink for the bill of materials was found.
+    # A non-existing filelink was found.
     return filelink
 
 
@@ -1301,10 +1308,10 @@ def filterObjectsByRegex(list_with_object_references, regex):
 # like the actual content of the regex input field.
 #                               inheritance
 #
-class OBJECT_OT_Selection2Actors(bpy.types.Operator):
+class OBJECT_OT_ExportTo0AD(bpy.types.Operator):
     """Performs the operation (i.e. creating a set of related actor XML files) according to the settings."""
     #=======ATTRIBUTES=========================================================#
-    bl_idname = "object.selection2actors"
+    bl_idname = "object.export_to_0ad"
     bl_label = "Create a Bill of Materials out of selected objects."
     " If no 'Material:<Material>' is given, the blender material is taken"
     " as the desired material. By default Group instances are resolved to"
@@ -1345,7 +1352,7 @@ class OBJECT_OT_Selection2Actors(bpy.types.Operator):
 # Two or more inputs: 1x checkbox, 1x text input for the pattern.
 # Extends Panel.
 #
-class VIEW3D_PT_tools_selection2actors(bpy.types.Panel):
+class VIEW3D_PT_tools_ExportTo0AD(bpy.types.Panel):
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'TOOLS'
     bl_label = 'Export to 0AD Actors'
@@ -1357,27 +1364,53 @@ class VIEW3D_PT_tools_selection2actors(bpy.types.Panel):
         in_mode_str = 'Objects'
         #get a string representation of enum button
         if debug:
-            print('Mode: ', s.selection2actors_in_mode)
+            print('Mode: ', s.export_to_0ad_in_mode)
         layout = self.layout
         col = layout.column(align = True)
-        col.row().prop(s, 'selection2actors_in_mode', expand = True)
+        col.row().prop(s, 'export_to_0ad_in_mode', expand = True)
         #splitbutton for enums (radio buttons) ...
         
         # textfield
         row = layout.row(align=True)
-        row.prop(s, 'selection2actors_in_target_path')
+        row.prop(s, 'export_to_0ad_in_target_path_base')
         #row.active = (in_mode_str == 'Join')
         
-        col = layout.column(align = True)
-        col.label(text = 'Include hidden objects:')
+        # textfield
+        row = layout.row(align=True)
+        row.prop(s, 'export_to_0ad_in_target_path_mod')
+        
+        row = layout.row(align=True)
+        row.label(text = 'Folders:')
+        
+        # textfield
+        row = layout.row(align=True)
+        row.prop(s, 'export_to_0ad_in_target_texture_folder')
+        
+        # textfield
+        row = layout.row(align=True)
+        row.prop(s, 'export_to_0ad_in_target_mesh_folder')
+        
+        # textfield
+        row = layout.row(align=True)
+        row.prop(s, 'export_to_0ad_in_target_actor_folder')
+        
+        # textfield
+        row = layout.row(align=True)
+        row.prop(s, 'export_to_0ad_in_target_animation_folder')
+
+
         row = layout.row(align = True)
-        row.prop(s, 'selection2actors_in_include_hidden')
+        row.prop(s, 'export_to_0ad_in_include_hidden')
+        
+        row = layout.row(align = True)
+        row.prop(s, 'export_to_0ad_in_overwrite_existing')
             
         row = layout.row(align = True)
         label = in_mode_str + " to 0AD Actors!"
-        if (s.selection2actors_in_mode != '0'):
+        if (s.export_to_0ad_in_mode == '0'):
             label = label + ' (derive parent objects first)'
-        row.operator('object.selection2actors', icon='FILE_TICK', text = label)
+        row.operator('object.export_to_0ad', icon='FILE_TICK', text = label)
+        
 
 
 
@@ -1392,58 +1425,70 @@ class VIEW3D_PT_tools_selection2actors(bpy.types.Panel):
 # REGISTER
 def register():
     bpy.utils.register_module(__name__)
-    #bpy.utils.register_class(OBJECT_OT_Selection2Actors)
-    #bpy.utils.register_class(VIEW3D_PT_tools_selection2actors)
+    #bpy.utils.register_class(OBJECT_OT_ExportTo0AD)
+    #bpy.utils.register_class(VIEW3D_PT_tools_ExportTo0AD)
     
     # mode
-    bpy.types.Scene.selection2actors_in_mode = EnumProperty(
+    bpy.types.Scene.export_to_0ad_in_mode = EnumProperty(
         name = "Mode",
         description = "Select whether to resolve parents "
                 " and start from each of those found highest level parent elements."
                 " Or if the current selection shall be used as starting point. (Only children will be exported.)",
         items = [
             ("0", "Resolve parents", ""),
-            ("1", "Start with selected, include children.", ""),
-            ("2", "Start with selected, only selection children.", "")
+            ("1", "Selected, include all children.", ""),
+            ("2", "Selected, only selection children.", "")
         ],
         default='0'
     )
     # is hidden
-    bpy.types.Scene.selection2actors_in_include_hidden = BoolProperty(
+    bpy.types.Scene.export_to_0ad_in_include_hidden = BoolProperty(
         name = "Include hidden objects?",
         description = "Whether to include hidden objects or not.",
         default = False
     )
+    # overwrite existing files  
+    bpy.types.Scene.export_to_0ad_in_overwrite_existing = BoolProperty(
+        name = "Overwrite existing files?",
+        description = "Whether to overwrite existing files or to use a different filename (appending a number).",
+        default = True
+    )
     # output base path
-    bpy.types.Scene.selection2actors_in_target_path_base = StringProperty(
+    bpy.types.Scene.export_to_0ad_in_target_path_base = StringProperty(
         name = "Path base",
         description = "Target path base."
         #,options = {'HIDDEN'}
         ,default = "~/0ad/binaries/data/mods/"
     )
     # mod folder
-    bpy.types.Scene.selection2actors_in_target_path_mod = StringProperty(
+    bpy.types.Scene.export_to_0ad_in_target_path_mod = StringProperty(
         name = "Target mod folder",
         description = "Target path mod folder.",
         default = "public/"
     )
     # mesh folder
-    bpy.types.Scene.selection2actors_in_target_mesh_folder = StringProperty(
+    bpy.types.Scene.export_to_0ad_in_target_mesh_folder = StringProperty(
         name = "Mesh folder",
         description = "Target path to meshes.",
         default = "art/meshes/"
     )
     # texture folder
-    bpy.types.Scene.selection2actors_in_target_texture_folder = StringProperty(
-        name = "Texture  folder",
+    bpy.types.Scene.export_to_0ad_in_target_texture_folder = StringProperty(
+        name = "Texture folder",
         description = "Target path to textures.",
         default = "art/textures/skins/"
     )
     # actor folder
-    bpy.types.Scene.selection2actors_in_target_actor_folder = StringProperty(
+    bpy.types.Scene.export_to_0ad_in_target_actor_folder = StringProperty(
         name = "Actor XML folder",
         description = "Target path to Actor XML files.",
         default = "art/actors/"
+    )
+    # animation folder
+    bpy.types.Scene.export_to_0ad_in_target_animation_folder = StringProperty(
+        name = "Animation folder",
+        description = "Target path to Animation COLLADA files.",
+        default = "art/animation/"
     )
     # animation folder
     #TODO Export the same as the mesh.dae to the animation folder, make sure animations get exported properly.
@@ -1454,12 +1499,19 @@ def register():
 #UNREGISTER
 def unregister():
     bpy.utils.unregister_module(__name__)
-    #bpy.utils.unregister_class(OBJECT_OT_Selection2Actors)
-    #bpy.utils.unregister_class(VIEW3D_PT_tools_selection2actors)
+    #bpy.utils.unregister_class(OBJECT_OT_ExportTo0AD)
+    #bpy.utils.unregister_class(VIEW3D_PT_tools_ExportTo0AD)
     #please tidy up
-    del bpy.types.Scene.selection2actors_in_mode
-    del bpy.types.Scene.selection2actors_in_include_hidden
-    del bpy.types.Scene.selection2actors_in_target_path
+    del bpy.types.Scene.export_to_0ad_in_mode
+    del bpy.types.Scene.export_to_0ad_in_include_hidden
+    del bpy.types.Scene.export_to_0ad_in_overwrite_existing
+    del bpy.types.Scene.export_to_0ad_in_target_path_base
+    del bpy.types.Scene.export_to_0ad_in_target_path_mod
+    del bpy.types.Scene.export_to_0ad_in_target_texture_folder
+    del bpy.types.Scene.export_to_0ad_in_target_mesh_folder
+    del bpy.types.Scene.export_to_0ad_in_target_actor_folder
+    del bpy.types.Scene.export_to_0ad_in_target_animation_folder
+    
     #pass
 
 

@@ -3,11 +3,11 @@
 # ========= BLENDER ADD-ON =====================================================
 
 bl_info = {
-    "name":         "Selection 2 0AD Actors",
-    "author":       "faerietree (Jan R.I.Balzer-Wein)",
-    "version":      (0, 1),
+    "name":         "Export 2 0AD Actors",
+    "author":       "faerietree (Jan R.I.Balzer-Wein v. Wegelin u. Zenker)",
+    "version":      (0, 1), # release version! not yet released, that's why it still is 0.1!
     "blender":      (2, 7, 1),
-    "location":     "View3D > Tool Shelf > Selection 2 0AD Actors",
+    "location":     "View3D > Tool Shelf > Export 2 0AD Actors",
     "description":  "Either creates a set of 0AD actor files of the selected objects"
             " (including group instances which are resolved to their source objects)."
             "Or selects all objects of the current"
@@ -27,7 +27,7 @@ bl_info = {
 # ------- INFORMATION ----------------------------------------------------------
 # First created for Blender Version: 2.71
 #
-# Addon-Version: v.1 - 2014-07-19
+# Addon-Version: v.1 - Release date: 2014-08-16
 # Author: Ian R.I.B.-Wein, known as Radagast of Arda, FairieTale Productions
 #
 
@@ -531,7 +531,6 @@ def export_actor_related_files_recursively(context, o):
         duplicate_objects_to_treat = []
         group_objects_duplicates = []
         
-            
         #Is a group instance?
         if (object_with_this_prefix_duplicate.dupli_group):
             if debug:

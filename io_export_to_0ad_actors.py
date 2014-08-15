@@ -327,9 +327,10 @@ def export_actor_related_files_recursively(context, o):
     # LIST?
     #-------
     if (o is list or type(o) is list):
+        last_created_actor = None
         for o1 in o:
-            create_bom_entry_recursively(context, o1)
-        return {'FINISHED'}
+            last_created_actor = create_bom_entry_recursively(context, o1)
+        return last_created_actor
 
 
     #-------
@@ -337,89 +338,8 @@ def export_actor_related_files_recursively(context, o):
     #-------
     elif ( (o is object) or (type(o) is object) or (type(o) is bpy.types.Object) ):
         
-        is_longest_object_label_then_store_len(o)
         print('Encountered an object: ', o, ' blender-Type: ', o.type)
         
-        
-        #Is object type considered? (not considered are e.g. armatures.)
-        #dupligroup/groupinstance can theoretically be attached to any object, but we only consider those:
-        if (is_object_type_considered(o.type)):#(o_bjects has to be an object for type to exist)
-
-            #Is not a group instance?        
-            if (o.dupli_group is None):
-                    #or o_bjects.dupli_type is not 'GROUP'<--TODO:superfluous? What effects does changing the duplitype setting have?
-                if (not o.is_visible(context.scene)):
-                    if debug:
-                        print('Object ', o,' is not visible in the current scene: ', context.scene)
-                    return {'CANCELLED'}
-                    
-                #this object is not functioning as a group instance container!
-                if (not build_and_store_bom_entry(context, o)):
-                    if debug:
-                        print('Failed to write bom entry to file. ', o, create_bom_entry_recursion_depth)
-                    return {'CANCELLED'}
-                    
-                return {'FINISHED'}
-
-
-            #NOTE: PAY ATTENTION TO BLANK LINES - COMPILER COULD ASSUME THE ELIF STATEMENT IS ALREADY DONE.
-            
-            #Is a group instance?
-            elif (o.dupli_group is not None
-                    #and o_bjects.dupli_type is 'GROUP'<--TODO:superfluous? What effects does changing the duplitype setting have?
-                    #THE DUPLI_TYPE IS ONLY RELEVANT FOR NEWLY CREATED DUPLICATIONS/REFERENCES FROM THE OBJECT!
-                    #THE TYPE OF THE GROUP (o_bjects.dupli_group:bpy.types.Group) IS INTERESTING BUT IS 'GROUP' ANYWAY ELSE IT WERE NO GROUP!
-                    #Is a group but has no objects in the group?
-                    and (len(o.dupli_group.objects) > 0)): #if no objects are linked here the creation of a BoM entry is pointless
-                if debug:
-                    print("It's a Group instance! Attached dupli group: ", o.dupli_group)
-                    
-                #Resolving groups is not desired?
-                if (context.scene.export_to_0ad_in_mode == '0'):
-                    if debug:
-                        print('Group shall not be resolved. Is considered a standalone complete part on its own.')
-                    #This object is functioning as a group instance container and resembles a standalone mechanical part!
-                    if (not build_and_store_bom_entry(context, o)):
-                        if debug:
-                            print('Failed to write bom entry of group instance to file: ', o, '\t dupli group: ', o.dupli_group)
-                        return {'CANCELLED'}
-                    return {'FINISHED'}
-                    
-                #make an attempt at resolving the group instance
-                #Here only group instances are handled! Groups are handled later in the act function.
-                #The objects where this instance is attached to?
-                resolve_group_result = o.dupli_group.objects#resolve_group(group)
-                
-                if (resolve_group_result is None or (len(resolve_group_result) < 1)):
-                    #Group was not resolved successfully!
-                    if debug:
-                        print('Failed to resolve a group or group was empty. ', group)
-                    return {'CANCELLED'}
-                    
-                #Group resolved into objects!
-                if debug:
-                    print('Resolved a group. Count of objects in group: ', len(resolve_group_result))
-                for obj in resolve_group_result:
-                    create_bom_entry_recursively(context, obj)
-                    
-                return {'FINISHED'}
-                    
-            else:
-                #if no objects are linked here the creation of a BoM entry is pointless
-                if debug:
-                    print('It may be a group instance ', o.dupli_group, ' but has no objects: ', o.dupli_group.objects)
-                return {'CANCELLED'}
-            
-            
-            
-        #Object type is not considered then:
-        else:
-            if (debug):
-                print('Object type ', o.type, ' is not considered (e.g. armatures are not considered a mechanical part).')
-            return {'CANCELLED'}
-            
-        
-    #if we didn't return until now, then this time none of the above conditions was met:
     if debug:
         print('Did not match any branch for creating an actor file:', o, ' type:', type(o))
 
@@ -477,9 +397,16 @@ def export_actor_related_files_recursively(context, o):
         object_with_this_prefix = all_objects_with_this_prefix[all_objects_with_this_prefix_index]
         object_with_this_prefix_duplicate = None
         
+        #Is object type considered? (not considered are e.g. armatures.)
+        #dupligroup/groupinstance can theoretically be attached to any object, but we only consider those:
+        #if (not is_object_type_considered(o.type)):#(o_bjects has to be an object for type to exist)
         if (object_with_this_prefix.type != 'MESH'):
             continue
         
+        if (not object_with_this_prefix.is_visible(context.scene)):
+            if debug:
+                print('Object ', object_with_this_prefix,' is not visible in the current scene: ', context.scene)
+            continue
         
         # create the variant for this mesh: (each variant will get the uv_map's name to allow for picking the correct variant according to unit state)
         variant = Variant()
@@ -603,17 +530,39 @@ def export_actor_related_files_recursively(context, o):
 
         duplicate_objects_to_treat = []
         group_objects_duplicates = []
+        
+            
+        #Is a group instance?
         if (object_with_this_prefix_duplicate.dupli_group):
-            # TODO handle group instance here:
-            for group_object in object_with_this_prefix_duplicate.dupli_group:
-                bpy.ops.object.select_all(action="DESELECT")
-                # select exactly 1 object:
-                bpy.ops.object.select(group_object)
-                bpy.ops.duplicate()
-                group_objects_duplicates.append(context.active_object)
+            if debug:
+                print("It's a Group instance! Attached dupli group: ", object_with_this_prefix_duplicate.dupli_group)
                 
-            for group_object_duplicate in group_objects_duplicates:   
-                duplicate_objects_to_treat.append(context.active_object)
+            #Is a group but has no objects in the group?
+            if (object_with_this_prefix_duplicate.dupli_group.objects is None or len(object_with_this_prefix_duplicate.dupli_group.objects) < 1):
+                # If no objects are linked in the group instance then the creation of a BoM entry is pointless:
+                if debug:
+                    print('It may be a group instance ', object_with_this_prefix.dupli_group, ' but has no objects: ', object_with_this_prefix.dupli_group.objects)
+                continue
+            
+            # handle group instance here:
+            # Resolving groups is not desired?
+            if (True):#TODO context.scene.export_to_0ad_in_resolve_group_instances):
+                if debug:
+                    print('Group shall not be resolved. Is considered a standalone complete part/object on its own. All group objects will be duplicated and joined into a single object.')
+                #This object is functioning as a group instance container and resembles a standalone mechanical part! => join all gorup objects
+                for group_object in object_with_this_prefix_duplicate.dupli_group.objects:
+                    bpy.ops.object.select_all(action="DESELECT")
+                    # select exactly 1 object:
+                    bpy.ops.object.select(group_object)
+                    bpy.ops.duplicate()
+                    group_objects_duplicates.append(context.active_object)
+                    
+                for group_object_duplicate in group_objects_duplicates:   
+                    duplicate_objects_to_treat.append(context.active_object)
+                    
+            else:
+                # TODO Each group object is an individual mesh. This is hard to do as we had to create a mesh + actor for each of the referenced group objects.
+                continue 
                 
                 
         else:
@@ -628,7 +577,7 @@ def export_actor_related_files_recursively(context, o):
             bpy.ops.duplicates_make_real()
         
         if (len(group_objects_duplicates) > 0):
-            # convert if possible:
+            # convert if possible: TODO Move into previous loop?
             for g_o_d in group_objects_duplicates:
                 if (g_o_d.type == 'CURVE'):
                     bpy.ops.object.select_all(action="DESELECT")

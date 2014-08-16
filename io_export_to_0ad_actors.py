@@ -340,8 +340,9 @@ def export_actor_related_files_recursively(context, o):
         
         print('Encountered an object: ', o, ' blender-Type: ', o.type)
         
-    if debug:
-        print('Did not match any branch for creating an actor file:', o, ' type:', type(o))
+    else:
+        if debug:
+            print('Did not match any branch for creating an actor file:', o, ' type:', type(o))
 
 
     ############    
@@ -375,7 +376,7 @@ def export_actor_related_files_recursively(context, o):
     variants = []
     object_prefix = o.name.split("__")[0] #getBaseName() #separated_by_double_underscore to allow for single underscores.
     # If highest automatic highest level parent resolving is deactivated, then this may well be a custom selection we shall operate on:
-    if (not context.scene.export_to_0ad__auto_resolve_parent):
+    if (context.scene.export_to_0ad_in_mode != '0'):#not context.scene.export_to_0ad__auto_resolve_parent):
         object_references = context.selected_objects.copy()
     # Else we search all equal-prefixed object from within the full set of this scene's objects. (TODO From visible layers only.)
     else:
@@ -411,22 +412,24 @@ def export_actor_related_files_recursively(context, o):
         # create the variant for this mesh: (each variant will get the uv_map's name to allow for picking the correct variant according to unit state)
         variant = Variant()
         # build output filename:
-        ensure_filelink_not_exists = context.export_to_0ad_in_overwrite_existing
-        variant.mesh = build_filelink(context, object_with_this_prefix.name, ".dae", ensure_filelink_not_exists, mesh_filelink_base)
+        ensure_filelink_not_exists = context.scene.export_to_0ad_in_overwrite_existing
+        variant.mesh = Mesh(build_filelink(context, object_with_this_prefix.name, ".dae", ensure_filelink_not_exists, mesh_filelink_base))
         
         texture_variants = {}
         # one (the 2nd!) UV map for ao and one for diffuse (the 1st): all others are seen as variants but are omitted currently. TODO how to distinguish texture types and variants. TODO Use _norm and _ao to figure it out? !! NO! => Those are generated, thus this indeed are variants and not textures.
         # => Texture variants are assigned to the same UV map.
         uv_textures = []
         uv_textures = object_with_this_prefix.data.uv_textures
-        for mesh_texture_polylayer in uv_textures.items: 
+        for mesh_texture_polylayer in uv_textures:#.items: 
             uv_map_name = mesh_texture_polylayer.name
             print('uv_map_name: ' + uv_map_name)
             # iterate each quad or poly (since BMesh is supported by blender, i.e. since 2.61+)
+            texture_variants_count = 0
             for mesh_texture_poly in mesh_texture_polylayer.data: # type of mesh_texture_poly is Image
                 texture_variant = Variant()
-                texture_variant.name = uv_map_name + '' + rand()
-                texture_variant.textures.append(mesh_texture_poly.filepath)
+                texture_variants_count += 1
+                texture_variant.name = uv_map_name + '' + str(texture_variants_count) #+ random.randint()
+                texture_variant.textures.append(Texture(mesh_texture_poly.filepath, "baseTex"))
                 # file_format UPPERCASE
                 # if image not exists in textures/skins/... output directory, then create it:
                 parts = mesh_texture_poly.filepath.split("\/");
@@ -1097,18 +1100,19 @@ def build_filelink(context, objectname, fileending = "", ensure_filelink_not_exi
     #root = dirname(pathname(__FILE__))#http://stackoverflow.com/questions/5137497/find-current-directory-and-files-directory
     filename = ''#TODO Determine this blender file name!
      
-    filepath_parts = object_name.split("##")
+    filepath_parts = objectname.split("##")
     filepath_parts_length = len(filepath_parts)
     # no subfolders?
     if (filepath_parts_length < 1):
-        print('No subfolders given in object name: ' + object_name + '. Will use highest level output folder + specified global subfolder.')
+        print('No subfolders given in object name: ' + objectname + '. Will use highest level output folder + specified global subfolder.')
     else:
-        filepath_parts_index = -1
+        filepath_parts_index = 0 
         # each non-empty part is a part of the filelink:
-        while (++filepath_parts_index < filepath_parts_length - 1): # - 1 because the last is no subfolder
+        while (filepath_parts_index < filepath_parts_length - 1): # - 1 because the last is no subfolder
             object_specific_subfolder = filepath_parts[filepath_parts_index]
-            print('Found subfolder in object name: ' + object_specific_subfolder)
+            print('Found subfolder in object name: ' + object_specific_subfolder + ' filepath_parts_index: ' + str(filepath_parts_index) + ' of ' + str(filepath_parts_length))
             filelink = os.path.join(filelink, object_specific_subfolder)
+            filepath_parts_index += 1
             
     filename = filepath_parts[filepath_parts_length - 1]
     
@@ -1469,10 +1473,11 @@ class Actor():
     
     #class_var = ""
     
-    def __init__(filelink, o, mesh_filelink):
-        self.filelink = filelink
-        self.mesh_filelink = mesh_filelink
-        self.o = o
+    def __init__(self):#filelink, object):
+        print(self)
+        self.filelink = None #filelink
+        self.material = None 
+        self.object = None #object
         self.groups = []
         
 
@@ -1490,15 +1495,16 @@ class Actor():
         "\n"
         '<actor version="1">'
         for group in self.groups:
-            xml = xml + "\n" + group.toXml()
-        xml = xml + '</actor>'
+            xml = xml + "\n\t" + group.toXml()
+        xml = xml + "\n\t" + '<material>' + self.material + '</material>'
+        xml = xml + "\n" + '</actor>'
         return xml
 
 
 
 class Group():
     
-    def __init__():
+    def __init__(self):
         # Each group xml node contains at least one variant, which the engine picks 1 from randomly.
         self.variants = []
     
@@ -1516,28 +1522,86 @@ class Group():
 class Variant():
     
     # Define 
-    def __init__():
+    def __init__(self):
         self.frequency = 100
+        self.name = None
         self.props = []
+        self.textures = [] # <-- diffuses + specular + bump/parallax + optional ambient occlusion (all dependent on the chosen actor material)
+        self.mesh = None#_filelink = None
+        self.animations = [] # TODO
         
-    def toXml():
-        props_xml = ''
+    def toXml(self):
+        animations_xml = '<animations>'
+        for animation in self.animations: #TODO use sorted(set(list)) to have a unique sorted sequence? Will objects be removed by set if the address is  equal? It is to be expected but is it certain?
+            animations_xml = animations_xml + "\n\t" + animation.toXml()
+        animations_xml = animations_xml + "\n" + '</animations>'
+        
+        props_xml = '<props>'
         for prop in self.props: #TODO use sorted(set(list)) to have a unique sorted sequence? Will objects be removed by set if the address is  equal? It is to be expected but is it certain?
-            props_xml = props_xml + "\n" + prop.toXml()
-            
+            props_xml = props_xml + "\n\t" + prop.toXml()
+        props_xml = props_xml + "\n" + '</props>'
+        
+        textures_xml = '<textures>'
+        for texture in self.textures: #TODO use sorted(set(list)) to have a unique sorted sequence? Will objects be removed by set if the address is  equal? It is to be expected but is it certain?
+            textures_xml = textures_xml + "\n\t" + texture.toXml()
+        textures_xml = textures_xml + "\n" + '</textures>'
+        
+
         node_name = self.__class__.__name__.lower()
-        return '<' + node_name + ' name="' + self.actor_filelink_relative + '" frequency="' + self.frequency + '">' + props_xml + '</' + node_name + '>'
+        
+
+        node_name = self.__class__.__name__.lower()
+        return '<' + node_name + ' name="' + self.name + '" frequency="' + self.frequency + '">' + animations_xml + "\n\t" + self.mesh.toXml() + "\n\t" + props_xml + "\n\t" + textures_xml + "\n" + '</' + node_name + '>'
 
 
+#
+#
+#
+class Animation():
+    def __init__(self):
+        self.event = None
+        self.filelink = None
+        self.name = None
 
+    def toXml(self):
+        node_name = self.__class__.__name__.lower()
+        return '<' + node_name + ' event="'+ self.event +'" name="'+ self.name +'">' + self.filelink + '</' + node_name + '>'
+
+
+#
+#
+#
+class Mesh():
+    def __init__(self):
+        self.filelink = None
+
+    def toXml(self):
+        node_name = self.__class__.__name__.lower()
+        return '<' + node_name + '>' + self.filelink + '</' + node_name + '>'
+
+#
+#
+#
+class Texture():
+    def __init__(self, filelink, name):
+        self.filelink = filelink
+        self.name = name # baseTex | specTex | normTex (parallax/bump)
+        
+    def toXml(self):
+        node_name = self.__class__.__name__.lower()
+        return '<' + node_name + ' name="' + self.name + '" file="' + self.filelink + '"></' + node_name + '>'
+
+#
+#
+#
 class Prop():
     
-    def __init__():
+    def __init__(self):
         # defaults:
         self.attachpoint = "root" # root is by convention the prop_point attached to the armature' root bone
-        self.actor_filelink_relative = "optional_subfolder/actor.xml"
+        self.actor_filelink_relative = "optional_subfolder/actor.xml" #TODO <-- Ensure it is really relative.
     
-    def toXml():
+    def toXml(self):
         node_name = self.__class__.__name__.lower()
         return '<' + node_name + ' actor="' + self.actor_filelink_relative + '" attachpoint="' + self.attachpoint + '"></' + node_name + '>'
     

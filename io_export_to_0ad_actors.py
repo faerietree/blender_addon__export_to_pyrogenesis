@@ -1572,8 +1572,8 @@ class Animation():
 #
 #
 class Mesh():
-    def __init__(self):
-        self.filelink = None
+    def __init__(self, filelink):
+        self.filelink = filelink
 
     def toXml(self):
         node_name = self.__class__.__name__.lower()

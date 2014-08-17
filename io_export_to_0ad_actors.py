@@ -420,26 +420,38 @@ def export_actor_related_files_recursively(context, o):
         # => Texture variants are assigned to the same UV map.
         uv_textures = []
         uv_textures = object_with_this_prefix.data.uv_textures
+        is_at_least_one_uv_map_with_one_texture_found = False
         for mesh_texture_polylayer in uv_textures:#.items: 
             uv_map_name = mesh_texture_polylayer.name
             print('uv_map_name: ' + uv_map_name)
             # iterate each quad or poly (since BMesh is supported by blender, i.e. since 2.61+)
             texture_variants_count = 0
-            for mesh_texture_poly in mesh_texture_polylayer.data: # type of mesh_texture_poly is Image
+            is_at_least_one_texture_found = False
+            for mesh_texture_poly in mesh_texture_polylayer.data: # type of mesh_texture_poly.image is Image
                 texture_variant = Variant()
                 texture_variants_count += 1
                 texture_variant.name = uv_map_name + '' + str(texture_variants_count) #+ random.randint()
-                texture_variant.textures.append(Texture(mesh_texture_poly.filepath, "baseTex"))
+                if (mesh_texture_poly.image == None or mesh_texture_poly.image.filepath == ""):
+                    print(str(mesh_texture_poly) + ' has no image assigned ('+ str(mesh_texture_poly.image) +') or the image filepath is empty.')
+                    continue
+                is_at_least_one_texture_found = True
+                is_at_least_one_uv_map_with_one_texture_found = True
+                print('Found image: filepath: ' + mesh_texture_poly.image.filepath)
+                texture_variant.textures.append(Texture(mesh_texture_poly.image.filepath, "baseTex"))
                 # file_format UPPERCASE
                 # if image not exists in textures/skins/... output directory, then create it:
-                parts = mesh_texture_poly.filepath.split("\/");
+                parts = mesh_texture_poly.image.filepath.split("\/");
                 #output_filelink = build_filelink(context, parts[len(parts) - 1], "", ensure_filelink_not_exists, texture_filelink_base)
                 texture_output_filelink = os.path.join(texture_filelink_base, parts[len(parts) - 1])
                 print('texture output_filelink: ' + texture_output_filelink)
                 if not os.path.isfile(texture_output_filelink):
-                    mesh_texture_poly.data.save_render(texture_output_filelink)
-                
+                    mesh_texture_poly.image.save_render(texture_output_filelink) # save() doesn't take a filepath argument but saves to the source filepath (original texture filepath). The difference is subtle but significant here as we it's not certain that the texture already exists in the correct place, i.e. the texture destination directory specified in the blender GUI. 
+            if (not is_at_least_one_texture_found):
+                print('UV map: ' + uv_map_name + ' has no texture assigned.')
         # append each variant + its mesh as those are tightly connected, i.e. depending on the mesh's UV map, a texture fits or does not:
+        if (not is_at_least_one_uv_map_with_one_texture_found):
+            print('Object: ' + object_with_this_prefix + ' has no UV map with a texture assigned.')
+            
         for texture_variant in texture_variants:
             texture_variant.mesh = variant.mesh
             variants.append(texture_variant) 

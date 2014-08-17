@@ -436,13 +436,13 @@ def export_actor_related_files_recursively(context, o):
                     continue
                 is_at_least_one_texture_found = True
                 is_at_least_one_uv_map_with_one_texture_found = True
-                print('Found image: filepath: ' + mesh_texture_poly.image.filepath)
+                print('Found image: filepath: ' + mesh_texture_poly.image.filepath + '   raw: ' + mesh_texture_poly.image.filepath_raw)
                 texture_variant.textures.append(Texture(mesh_texture_poly.image.filepath, "baseTex"))
                 # file_format UPPERCASE
                 # if image not exists in textures/skins/... output directory, then create it:
                 parts = mesh_texture_poly.image.filepath.split("\/");
                 #output_filelink = build_filelink(context, parts[len(parts) - 1], "", ensure_filelink_not_exists, texture_filelink_base)
-                texture_output_filelink = os.path.join(texture_filelink_base, parts[len(parts) - 1])
+                texture_output_filelink = bpy.path.abspath(os.path.join(texture_filelink_base, parts[len(parts) - 1]))
                 print('texture output_filelink: ' + texture_output_filelink)
                 if not os.path.isfile(texture_output_filelink):
                     mesh_texture_poly.image.save_render(texture_output_filelink) # save() doesn't take a filepath argument but saves to the source filepath (original texture filepath). The difference is subtle but significant here as we it's not certain that the texture already exists in the correct place, i.e. the texture destination directory specified in the blender GUI. 
@@ -459,8 +459,9 @@ def export_actor_related_files_recursively(context, o):
         #################
         # For each mesh variant (object with same prefix) also try to build props:
         #props_actors = [] #"<props>"
-        children_index = -1
-        while ++children_index < len(object_with_this_prefix.children):
+        children_index = -1 
+        while children_index < len(object_with_this_prefix.children) - 1:
+            children_index += 1
             child_object = object_with_this_prefix.children[children_index]
             # it's a mesh child: (add a prop point empty)
             prop = Prop()
@@ -495,13 +496,13 @@ def export_actor_related_files_recursively(context, o):
         duplicates_main_object_and_child_empties_only = []
         
         bpy.ops.object.select_all(action="DESELECT")
-        bpy.ops.object.select(object_with_this_prefix)
+        object_with_this_prefix.select = True
         bpy.ops.object.duplicate()
         object_with_this_prefix_duplicate = context.active_object
         duplicates_main_object_and_child_empties_only.append(object_with_this_prefix_duplicate)
         for child_object in object_with_this_prefix.children:
             bpy.ops.object.select_all(action="DESELECT")
-            bpy.ops.object.select(child_object)
+            child_object.select = True
             bpy.ops.object.duplicate()
             # resolve its corresponding prop using the non duplicated object:
             wasPropOrMainMeshFound = false
@@ -527,7 +528,7 @@ def export_actor_related_files_recursively(context, o):
             prop_point_object = p.prop_object_duplicate
             if (p.prop_object_duplicate.type != 'EMPTY'):
                 # add emtpy, select, deselect the real (non-empty) empty.
-                bpy.ops.object.select(p.prop_object_duplicate)
+                p.prop_object_duplicate.select = True
                 bpy.ops.view3d.cursor_to_selected()
                 bpy.ops.object.add('EMPTY')    # <-- TODO: Does this keep up the selection? - Probably yes, but is it certain? 
                 prop_point_object = context.active_object
@@ -567,7 +568,7 @@ def export_actor_related_files_recursively(context, o):
                 for group_object in object_with_this_prefix_duplicate.dupli_group.objects:
                     bpy.ops.object.select_all(action="DESELECT")
                     # select exactly 1 object:
-                    bpy.ops.object.select(group_object)
+                    group_object.select = True
                     bpy.ops.duplicate()
                     group_objects_duplicates.append(context.active_object)
                     
@@ -586,7 +587,7 @@ def export_actor_related_files_recursively(context, o):
             # treat
             bpy.ops.object.select_all(action="DESELECT")
             # select exactly 1 object:
-            bpy.ops.object.select(o)
+            o.select = True
             bpy.ops.object.apply_modifiers()#child_object_duplicate)
             bpy.ops.duplicates_make_real()
         
@@ -595,14 +596,14 @@ def export_actor_related_files_recursively(context, o):
             for g_o_d in group_objects_duplicates:
                 if (g_o_d.type == 'CURVE'):
                     bpy.ops.object.select_all(action="DESELECT")
-                    bpy.ops.object.select(g_o_d)
+                    g_o_d.select = True
                     bpy.ops.object.convert(target='MESH')  
             # select all those:
             bpy.ops.object.select_all(action="DESELECT")
             for g_o_d in group_objects_duplicates:
                 if (g_o_d.type != 'MESH'):
                     continue
-                bpy.ops.object.select(g_o_d)
+                g_o_d.select = True
             
             # join all meshes into the active object:
             print('Joining into active object: ' + context.active_object)
@@ -1101,12 +1102,20 @@ def build_filelink(context, objectname, fileending = "", ensure_filelink_not_exi
     filelink = ""
     
     # build filelink
-    
+    # http://blender.stackexchange.com/questions/5280/how-to-use-the-current-file-name-as-the-the-output-name-in-the-file-output-node
+    ## Get file name:
+    #filename = bpy.path.basename(context.blend_data.filepath)
+    ## Remove .blend extension:
+    #filename = os.path.splitext(filename)[0]
+    filelink = bpy.path.abspath("//") #<-- absolute path to the current .blend file
+    print('base_path: ' + filelink)
     # base path:
     filelink = os.path.join(context.scene.export_to_0ad_in_target_path_base, context.scene.export_to_0ad_in_target_path_mod)
+    print('base_path: ' + filelink)
     # If a relative filelink or a special subfolder that can't be derived from the objectname is desired, then use the basedirectory parameter:
     if (not basedirectory is None):
         filelink = basedirectory #'./' # using relative paths -> relative to home directory
+        print('base_path: ' + filelink)
         
     #root = os.getcwd()#<-- the directory of the current file (the question is of it's the blend file?)
     #root = dirname(pathname(__FILE__))#http://stackoverflow.com/questions/5137497/find-current-directory-and-files-directory

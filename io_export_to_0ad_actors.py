@@ -589,7 +589,8 @@ def export_actor_related_files_recursively(context, o):
             bpy.ops.object.select_all(action="DESELECT")
             # select exactly 1 object:
             o.select = True
-            bpy.ops.object.apply_modifiers()#child_object_duplicate)
+            while (bpy.ops.object.modifier_apply()):
+                pass
             bpy.ops.duplicates_make_real()
         
         if (len(group_objects_duplicates) > 0):

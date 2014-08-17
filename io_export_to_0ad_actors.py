@@ -506,13 +506,13 @@ def export_actor_related_files_recursively(context, o):
             child_object.select = True
             bpy.ops.object.duplicate()
             # resolve its corresponding prop using the non duplicated object:
-            wasPropOrMainMeshFound = false
+            wasPropOrMainMeshFound = False
             for p in variant.props:
                 if (p.object_to_derive_attachpoint_name_from == child_object):
                     # => found the correct prop.
                     p.prop_object_duplicate = context.scene.objects.active
                     print('prop: ' + p + ' prop_object: ' + p.prop_object + ' prop_object_duplicate: ' + p.prop_object_duplicate)
-                    wasPropOrMainMeshFound = true
+                    wasPropOrMainMeshFound = True
                     break
             if (not wasPropOrMainMeshFound):
                 print('Object '+ child_of_duplicate +' was not found.')

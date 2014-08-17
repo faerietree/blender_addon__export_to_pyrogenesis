@@ -498,7 +498,7 @@ def export_actor_related_files_recursively(context, o):
         bpy.ops.object.select_all(action="DESELECT")
         object_with_this_prefix.select = True
         bpy.ops.object.duplicate()
-        print('active object:' + context.scene.objects.active + ' after duplication of the object with this prefix')
+        print('active object:' + str(context.scene.objects.active) + ' after duplication of the object with this prefix')
         object_with_this_prefix_duplicate = context.scene.objects.active
         duplicates_main_object_and_child_empties_only.append(object_with_this_prefix_duplicate)
         for child_object in object_with_this_prefix.children:
@@ -607,7 +607,7 @@ def export_actor_related_files_recursively(context, o):
                 g_o_d.select = True
             
             # join all meshes into the active object:
-            print('Joining into active object: ' + context.scene.objects.active)
+            print('Joining into active object: ' + str(context.scene.objects.active))
             bpy.ops.object.join()
         else:
             bpy.ops.object.select_all(action="DESELECT")
@@ -637,8 +637,7 @@ def export_actor_related_files_recursively(context, o):
         # EXPORT using the duplicates
         #################
         selectedOnly = True
-        bpy.ops.object.export_collada(variant.mesh, selectedOnly)#child_object_duplicate is the active object, thus selected and will be exported)
-        bpy.ops.object.collada_export(variant.mesh, selectedOnly)
+        context.scene.collada_export(variant.mesh.filelink, apply_modifiers=True, selected=selectedOnly, include_children=True)#child_object_duplicate is the active object, thus selected and will be exported)
             
         variants.append(variant)
 

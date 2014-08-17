@@ -498,7 +498,8 @@ def export_actor_related_files_recursively(context, o):
         bpy.ops.object.select_all(action="DESELECT")
         object_with_this_prefix.select = True
         bpy.ops.object.duplicate()
-        object_with_this_prefix_duplicate = context.active_object
+        print('active object:' + context.scene.objects.active + ' after duplication of the object with this prefix')
+        object_with_this_prefix_duplicate = context.scene.objects.active
         duplicates_main_object_and_child_empties_only.append(object_with_this_prefix_duplicate)
         for child_object in object_with_this_prefix.children:
             bpy.ops.object.select_all(action="DESELECT")
@@ -509,14 +510,14 @@ def export_actor_related_files_recursively(context, o):
             for p in variant.props:
                 if (p.object_to_derive_attachpoint_name_from == child_object):
                     # => found the correct prop.
-                    p.prop_object_duplicate = context.active_object
+                    p.prop_object_duplicate = context.scene.objects.active
                     print('prop: ' + p + ' prop_object: ' + p.prop_object + ' prop_object_duplicate: ' + p.prop_object_duplicate)
                     wasPropOrMainMeshFound = true
                     break
             if (not wasPropOrMainMeshFound):
                 print('Object '+ child_of_duplicate +' was not found.')
             else:    
-                duplicates_main_object_and_child_empties_only.append(context.active_object)
+                duplicates_main_object_and_child_empties_only.append(context.scene.objects.active)
                     
                 
         # For each child we've added a prop.
@@ -531,7 +532,7 @@ def export_actor_related_files_recursively(context, o):
                 p.prop_object_duplicate.select = True
                 bpy.ops.view3d.cursor_to_selected()
                 bpy.ops.object.add('EMPTY')    # <-- TODO: Does this keep up the selection? - Probably yes, but is it certain? 
-                prop_point_object = context.active_object
+                prop_point_object = context.scene.objects.active
             # parent to the current mesh variant object:
             prop_point_object.parent = object_with_this_prefix_duplicate#p.prop_object_duplicate
             duplicates_main_object_and_child_empties_only.append(prop_point_object)
@@ -548,12 +549,12 @@ def export_actor_related_files_recursively(context, o):
         group_objects_duplicates = []
         
         #Is a group instance?
-        if (object_with_this_prefix_duplicate.dupli_group):
+        if (object_with_this_prefix.dupli_group):
             if debug:
-                print("It's a Group instance! Attached dupli group: ", object_with_this_prefix_duplicate.dupli_group)
+                print("It's a Group instance! Attached dupli group: ", object_with_this_prefix.dupli_group)
                 
             #Is a group but has no objects in the group?
-            if (object_with_this_prefix_duplicate.dupli_group.objects is None or len(object_with_this_prefix_duplicate.dupli_group.objects) < 1):
+            if (object_with_this_prefix.dupli_group.objects is None or len(object_with_this_prefix.dupli_group.objects) < 1):
                 # If no objects are linked in the group instance then the creation of a BoM entry is pointless:
                 if debug:
                     print('It may be a group instance ', object_with_this_prefix.dupli_group, ' but has no objects: ', object_with_this_prefix.dupli_group.objects)
@@ -565,15 +566,15 @@ def export_actor_related_files_recursively(context, o):
                 if debug:
                     print('Group shall not be resolved. Is considered a standalone complete part/object on its own. All group objects will be duplicated and joined into a single object.')
                 #This object is functioning as a group instance container and resembles a standalone mechanical part! => join all gorup objects
-                for group_object in object_with_this_prefix_duplicate.dupli_group.objects:
+                for group_object in object_with_this_prefix.dupli_group.objects:
                     bpy.ops.object.select_all(action="DESELECT")
                     # select exactly 1 object:
                     group_object.select = True
                     bpy.ops.duplicate()
-                    group_objects_duplicates.append(context.active_object)
+                    group_objects_duplicates.append(context.scene.objects.active)
                     
                 for group_object_duplicate in group_objects_duplicates:   
-                    duplicate_objects_to_treat.append(context.active_object)
+                    duplicate_objects_to_treat.append(context.scene.objects.active)
                     
             else:
                 # TODO Each group object is an individual mesh. This is hard to do as we had to create a mesh + actor for each of the referenced group objects.
@@ -606,7 +607,7 @@ def export_actor_related_files_recursively(context, o):
                 g_o_d.select = True
             
             # join all meshes into the active object:
-            print('Joining into active object: ' + context.active_object)
+            print('Joining into active object: ' + context.scene.objects.active)
             bpy.ops.object.join()
         else:
             bpy.ops.object.select_all(action="DESELECT")
@@ -873,7 +874,7 @@ def build_bom_entry(context, o):
     context.scene.objects.active = o
     result = {'CANCELLED'}
     operations_to_undo_count = 0
-    #if (not (context.active_object is None)):
+    #if (not (context.scene.objects.active is None)):
     #    #because multi-user mesh does not allow applying modifiers
     #    if (bpy.ops.object.make_single_user(object=True, obdata=True)):#, material=True, texture=True, animation=True)):
     #        operations_to_undo_count = operations_to_undo_count + 1
@@ -958,16 +959,16 @@ def build_bom_entry(context, o):
         
         context.scene.objects.active = context.selected_objects[group_objects_count - 1]
         if debug:
-            print(context.selected_objects, '\r\nactive_object: ', context.active_object)
+            print(context.selected_objects, '\r\nactive_object: ', context.scene.objects.active)
         #Attention: Poll fails because a context of joining into an empty (as this is the active object) is not valid!
         if (not bpy.ops.object.join()):
             print('Joining the temporary selection (dupli group made real) failed.')
             #break
             
         
-        x = context.active_object.dimensions[0]
-        y = context.active_object.dimensions[1]
-        z = context.active_object.dimensions[2]
+        x = context.scene.objects.active.dimensions[0]
+        y = context.scene.objects.active.dimensions[1]
+        z = context.scene.objects.active.dimensions[2]
         
         #now no longer required (copy instead of selected_object reference for recursion used now)
         #while --undo_count > 0:
@@ -991,7 +992,7 @@ def build_bom_entry(context, o):
     
     
     #undo - restore the modifiers #if no active object then no modifiers have been applied hence nothing to be undone.
-    #if ( not (context.active_object is None) and not (result == {'CANCELLED'}) ):
+    #if ( not (context.scene.objects.active is None) and not (result == {'CANCELLED'}) ):
     #    operations_undone_count = 0
     #    while (operations_undone_count < operations_to_undo_count): 
     #        result = bpy.ops.ed.undo()#undo_history()
@@ -1212,7 +1213,7 @@ def isThereSelectionThenGet(context):
 #HELPER - ISTHEREACTIVEOBJECT
 def isThereActiveObjectThenGet(context):
     #get active object of context
-    active_obj = context.active_object
+    active_obj = context.scene.objects.active
     if (active_obj is None or not active_obj):
         if debug:
             print('No active object -',
@@ -1221,7 +1222,7 @@ def isThereActiveObjectThenGet(context):
         sel = isThereSelectionThenGet(context)
         #make first object active (usually it should only be 1 object)
         context.scene.objects.active = sel[0]
-    active_obj = context.active_object
+    active_obj = context.scene.objects.active
     if (active_obj is None or not active_obj):
         if debug:
             print('Still no active object! Aborting renaming ...')

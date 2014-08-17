@@ -450,7 +450,7 @@ def export_actor_related_files_recursively(context, o):
                 print('UV map: ' + uv_map_name + ' has no texture assigned.')
         # append each variant + its mesh as those are tightly connected, i.e. depending on the mesh's UV map, a texture fits or does not:
         if (not is_at_least_one_uv_map_with_one_texture_found):
-            print('Object: ' + object_with_this_prefix + ' has no UV map with a texture assigned.')
+            print('Object: ' + object_with_this_prefix.name + ' has no UV map with a texture assigned.')
             
         for texture_variant in texture_variants:
             texture_variant.mesh = variant.mesh
